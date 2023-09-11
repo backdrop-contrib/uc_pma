@@ -1,0 +1,7 @@
+name = Payment Method Adjustments
+description = Associate a fee or discount with a payment method at checkout.
+dependencies[] = ubercart
+package = Ubercart - payment
+backdrop = 1.x
+type = module
+

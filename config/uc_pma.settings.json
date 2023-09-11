@@ -1,0 +1,6 @@
+{
+    "_config_name": "uc_pma.settings",
+    "uc_pma_adjustments_apply_to": {
+        "shipping": 0
+    }
+}

@@ -1,0 +1,265 @@
+<?php
+/**
+ * @file
+ * Main file for the Ubercart Payment Adjustments module.
+ */
+
+/**
+ * Implements hook_theme().
+ */
+function uc_pma_theme() {
+  return array(
+    'uc_pma_payment_method_table' => array(
+      'render element' => 'form',
+      'file' => 'uc_pma.theme.inc',
+    ),
+  );
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter() for uc_payment_methods_form().
+ *
+ * Adds an "Adjustments" column and field to the Payment Methods page.
+ */
+function uc_pma_form_uc_payment_methods_form_alter(&$form, &$form_state, $form_id) {
+
+  $form['uc_pma'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Adjustments'),
+    '#weight' => -1,
+  );
+  $form['uc_pma']['methods_info'] = array(
+    '#type' => 'help',
+    '#markup' => t('The Adjustment field can be used to associate a fee or discount with a payment method.  Specify a value that is a flat amount or a percentage of the subtotal to be added or subtracted when a payment method is chosen at checkout. Examples: 3%, 1.00, -5.5%, -2.'),
+  );
+  $form['uc_pma']['uc_pma_adjustments_apply_to'] = array(
+    '#config' => 'uc_pma.settings',
+    '#type' => 'checkboxes',
+    '#title' => t('Apply adjustments to:'),
+    '#default_value' => config_get('uc_pma.settings', 'uc_pma_adjustments_apply_to', array('products')),
+    '#description' => t('Pyment method adjustments always apply to products, but not by default to line items like shipping.'),
+    '#options' => array('shipping' => t('Shipping')),
+  );
+
+  // Replace the payment methods table theme with our own theme that will add
+  // the extra column for adjustments.
+  $form['pmtable']['#theme'] = 'uc_pma_payment_method_table';
+
+  // Add the adjustment field values, to be stored in config.
+  foreach (element_children($form['pmtable']) as $method_id) {
+    $form['pmtable'][$method_id]['uc_payment_method_' . $method_id . '_adjustment'] = array(
+      '#config' => 'uc_pma.settings',
+      '#type' => 'textfield',
+      '#default_value' => config_get('uc_pma.settings', 'uc_payment_method_' . $method_id . '_adjustment', ''),
+      '#size' => '9',
+    );
+  }
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter() for uc_cart_checkout_form().
+ *
+ * Replaces the default payment pane ajax with our own.
+ */
+function uc_pma_form_uc_cart_checkout_form_alter(&$form, &$form_state, $form_id) {
+  foreach ($form['panes']['payment']['payment_method']['#options'] as $key => $value) {
+    $adjustment = config_get('uc_pma.settings', 'uc_payment_method_' . $key . '_adjustment', '');
+    if (!empty($adjustment)) {
+      $form['panes']['payment']['payment_method']['#options'][$key] .= '<div class="description" style="padding-left: 2.5em;">' . payment_method_adjustment_description($key) . '</div>';
+    }
+  }
+
+  //replace default payment pane ajax behaviour with own
+  $form['panes']['payment']['payment_method']['#ajax'] = array(
+    'callback' => 'uc_pma_payment_method_ajax',
+    'progress' => array(
+      'type' => 'throbber',
+    ),
+  );
+}
+
+/**
+ * Implements hook_config_info().
+ */
+function uc_pma_config_info() {
+  $prefixes['uc_pma.settings'] = array(
+    'label' => t('Payment Adjustments settings'),
+    'group' => t('Configuration'),
+  );
+  return $prefixes;
+}
+
+/**
+ * AJAX callback for payment method details on the checkout form and adding a line item of payment method adjustment.
+ */
+function uc_pma_payment_method_ajax($form, $form_state) {
+  if (isset($form['panes']['payment']['details'])) {
+    $commands[] = ajax_command_replace('#payment-details', backdrop_render($form['panes']['payment']['details']));
+  }
+
+  if (isset($form['panes']['payment']['line_items'])) {
+    $commands[] = ajax_command_replace('#line-items-div', backdrop_render($form['panes']['payment']['line_items']));
+    $commands[] = ajax_command_prepend('#line-items-div', theme('status_messages'));
+  }
+
+  return array('#type' => 'ajax', '#commands' => $commands);
+}
+
+/*******************************************************************************
+ * Hook Functions (Ubercart)
+ ******************************************************************************/
+
+/**
+ * Implements hook_uc_line_item().
+ */
+function uc_pma_uc_line_item() {
+  $items[] = array(
+    'id'         => 'payment',
+    'title'      => t('Payment method'),
+    'weight'     => 6,
+    'stored'     => FALSE,
+    'calculated' => TRUE,
+    'add_list'   => TRUE,
+    'callback'   => 'uc_pma_adjustment_callback',
+  );
+
+  return $items;
+}
+
+/**
+ * Payment ajustment line item callback
+ */
+function uc_pma_adjustment_callback($op, &$order) {
+  switch ($op) {
+    case 'load':
+      $adjustment_order = $order;
+      $lines = array();
+
+      if(empty($adjustment_order->payment_method)){ //if payment_method isn't set we pick the default one
+        $methods = _uc_payment_method_list();
+        $default = NULL;
+
+        if(count($methods) > 0){
+          foreach ($methods as $id => $method) {
+            if ($method['checkout'] && !isset($method['express'])) {
+              if(is_null($default)) $default = $id;
+            }
+          }
+          $adjustment_order->payment_method = $default;
+        }
+      }
+
+      $adjustment = _payment_method_adjustment($adjustment_order);
+      if(isset($adjustment['description']) && isset($adjustment['value'])){
+        $lines[] = array(
+          'id' => 'payment_method',
+          'title' => $adjustment['description'],
+          'amount' => $adjustment['value'],
+        );
+      }
+
+      return $lines;
+  }
+}
+
+/**
+ * Implements hook_order().
+ */
+function uc_pma_order($op, &$arg1) {
+  switch ($op) {
+    case 'save':
+      $adjustment = _payment_method_adjustment($arg1);
+      db_query("DELETE FROM {uc_order_line_items} WHERE order_id = %d AND type = 'payment_method'", $arg1->order_id);
+      $min_adjust = 0.01;
+      if ($adjustment['value'] && ($adjustment['value'] >= $min_adjust || $adjustment['value'] <= -$min_adjust)) {
+        uc_order_line_item_add($arg1->order_id, 'payment_method', $adjustment['description'], $adjustment['value'], 1);
+      }
+      break;
+  }
+}
+
+/**
+ * Provides a description of the payment method adjustment.
+ */
+function payment_method_adjustment_description($method_id) {
+  $name = _uc_payment_method_data($method_id, 'name');
+  $adjustment = config_get('uc_pma.settings', 'uc_payment_method_' . $method_id . '_adjustment', '');
+  if (empty($name) || empty($adjustment)) {
+    return;
+  }
+
+  $adjustment = preg_replace('/[^-0-9' . config_get('uc_pma.settings', 'uc_currency_dec', '.') . ']+%/', '', $adjustment);
+
+  if (!strstr($adjustment, '%')) {
+    $adjustment = uc_currency_format(str_replace(config_get('uc_pma.settings', 'uc_currency_dec', '.'), ".", $adjustment));
+  }
+
+  if (strstr($adjustment, '-')) {
+    $description = t('Receive a !adjustment discount when paying by !method.', array('!adjustment' => str_replace('-', '', $adjustment), '!method' => $name));
+  }
+  else {
+    $description = t('There is a !adjustment fee when paying by !method.', array('!adjustment' => $adjustment, '!method' => $name));
+  }
+
+  return $description;
+}
+
+/**
+ * Utility routine to adjust payments on an order.
+ */
+function _payment_method_adjustment($order) {
+  if(empty($order->payment_method)) {
+    return 0;
+  }
+
+  // In case the variable is set to '', check if $adjustment is empty and substitute 0.
+  $pm_adjustment = config_get('uc_pma.settings', 'uc_payment_method_'. $order->payment_method .'_adjustment', '0');
+  $adjustment_data = array(
+    'name' => _uc_payment_method_data($order->payment_method, 'name'),
+    'adjustment' => empty($pm_adjustment) ? '0' : $pm_adjustment,
+  );
+
+  $subtotal = 0;
+  foreach ($order->products as $item) {
+    $item_total = ($item->qty) ? $item->qty * $item->price : $item->price;
+    $subtotal += $item_total;
+  }
+
+  $adjust_types = config_get('uc_pma.settings', 'uc_pma_adjustments_apply_to', array());
+  if (!empty($adjust_types)) {
+    foreach ($order->line_items as $line_item) {
+      if (in_array($line_item['type'], $adjust_types)) {
+        $subtotal += $line_item['amount'];
+      }
+    }
+  }
+
+  $discount = FALSE;
+  $percent = FALSE;
+
+  $adjustment = array();
+
+  $adjustment = preg_replace('/[^-0-9'. config_get('uc_pma.settings', 'uc_currency_dec', '.') .']+%/', '', $adjustment_data['adjustment']);
+  $ret['value'] = $adjustment;
+  $ret['description'] = t('@name fee', array('@name' => $adjustment_data['name']));
+
+  if (strstr($adjustment, '-')) {
+    $discount = TRUE;
+  }
+  if (strstr($adjustment, '%')) {
+    $percent = TRUE;
+    $adjustment = str_replace('%', '', $adjustment);
+    $adjustment /= 100;
+  }
+
+  if ($percent) {
+    $ret['value'] = $adjustment * $subtotal;
+  }
+  if ($discount) {
+    $ret['description'] = t('@name discount', array('@name' => $adjustment_data['name']));
+  }
+  $ret['description'] = ucfirst($ret['description']); //force first letter of line item to be uppercase
+  $ret['value'] = number_format(str_replace(config_get('uc_pma.settings', 'uc_currency_dec', '.'), ".", $ret['value']), 2);
+
+  return $ret;
+}

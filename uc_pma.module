@@ -37,7 +37,7 @@ function uc_pma_form_uc_payment_methods_form_alter(&$form, &$form_state, $form_i
     '#type' => 'checkboxes',
     '#title' => t('Apply adjustments to:'),
     '#default_value' => config_get('uc_pma.settings', 'uc_pma_adjustments_apply_to', array('products')),
-    '#description' => t('Pyment method adjustments always apply to products, but not by default to line items like shipping.'),
+    '#description' => t('Payment method adjustments always apply to products, but not by default to line items like shipping.'),
     '#options' => array('shipping' => t('Shipping')),
   );
 
@@ -188,10 +188,10 @@ function payment_method_adjustment_description($method_id) {
     return;
   }
 
-  $adjustment = preg_replace('/[^-0-9' . config_get('uc_pma.settings', 'uc_currency_dec', '.') . ']+%/', '', $adjustment);
+  $adjustment = preg_replace('/[^-0-9' . config_get('uc_store.settings', 'uc_currency_dec', '.') . ']+%/', '', $adjustment);
 
   if (!strstr($adjustment, '%')) {
-    $adjustment = uc_currency_format(str_replace(config_get('uc_pma.settings', 'uc_currency_dec', '.'), ".", $adjustment));
+    $adjustment = uc_currency_format(str_replace(config_get('uc_store.settings', 'uc_currency_dec', '.'), ".", $adjustment));
   }
 
   if (strstr($adjustment, '-')) {
@@ -239,7 +239,7 @@ function _payment_method_adjustment($order) {
 
   $adjustment = array();
 
-  $adjustment = preg_replace('/[^-0-9'. config_get('uc_pma.settings', 'uc_currency_dec', '.') .']+%/', '', $adjustment_data['adjustment']);
+  $adjustment = preg_replace('/[^-0-9'. config_get('uc_store.settings', 'uc_currency_dec', '.') .']+%/', '', $adjustment_data['adjustment']);
   $ret['value'] = $adjustment;
   $ret['description'] = t('@name fee', array('@name' => $adjustment_data['name']));
 
@@ -259,7 +259,7 @@ function _payment_method_adjustment($order) {
     $ret['description'] = t('@name discount', array('@name' => $adjustment_data['name']));
   }
   $ret['description'] = ucfirst($ret['description']); //force first letter of line item to be uppercase
-  $ret['value'] = number_format(str_replace(config_get('uc_pma.settings', 'uc_currency_dec', '.'), ".", $ret['value']), 2);
+  $ret['value'] = number_format(str_replace(config_get('uc_store.settings', 'uc_currency_dec', '.'), ".", $ret['value']), 2);
 
   return $ret;
 }

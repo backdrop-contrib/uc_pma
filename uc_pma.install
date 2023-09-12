@@ -1,0 +1,32 @@
+<?php
+/**
+ * @file
+ * Install, update and uninstall functions for the uc_pma module.
+ *
+ */
+
+/**
+ * Convert uc_pma variables to config.
+ */
+function uc_pma_update_1000() {
+  $config = config('uc_pma.settings');
+  $config->set('uc_pma_adjustments_apply_to', update_variable_get('uc_pma_adjustments_apply_to', array()));
+
+  // Get adjustments from the variable table by matching to their form.
+  $adjustments = db_query("
+    SELECT name, value
+    FROM {variable}
+    WHERE name LIKE 'uc_payment_method_%_adjustment'
+    ")
+    ->fetchAllKeyed();
+  foreach ($adjustments as $name => $value) {
+    $config->set($name, update_variable_get($value, ''));
+  }
+
+  $config->save();
+
+  update_variable_del('uc_pma_adjustments_apply_to');
+  foreach ($adjustments as $name => $value) {
+    update_variable_del($name);
+  }
+}

@@ -127,7 +127,7 @@ function uc_pma_uc_line_item() {
 }
 
 /**
- * Payment ajustment line item callback
+ * Payment adjustment line item callback.
  */
 function uc_pma_adjustment_callback($op, &$order) {
   switch ($op) {
@@ -135,14 +135,17 @@ function uc_pma_adjustment_callback($op, &$order) {
       $adjustment_order = $order;
       $lines = array();
 
-      if(empty($adjustment_order->payment_method)){ //if payment_method isn't set we pick the default one
+      if (empty($adjustment_order->payment_method)) {
+        //if payment_method isn't set we pick the default one
         $methods = _uc_payment_method_list();
         $default = NULL;
 
-        if(count($methods) > 0){
+        if (count($methods) > 0) {
           foreach ($methods as $id => $method) {
             if ($method['checkout'] && !isset($method['express'])) {
-              if(is_null($default)) $default = $id;
+              if (is_null($default)) {
+                $default = $id;
+              }
             }
           }
           $adjustment_order->payment_method = $default;
@@ -150,7 +153,9 @@ function uc_pma_adjustment_callback($op, &$order) {
       }
 
       $adjustment = _payment_method_adjustment($adjustment_order);
-      if(isset($adjustment['description']) && isset($adjustment['value'])){
+
+      // Add the adjustment if all info is there and it's nonzero.
+      if (isset($adjustment['description']) && isset($adjustment['value']) && $adjustment['value'] != 0){
         $lines[] = array(
           'id' => 'payment_method',
           'title' => $adjustment['description'],
@@ -208,11 +213,12 @@ function payment_method_adjustment_description($method_id) {
  * Utility routine to adjust payments on an order.
  */
 function _payment_method_adjustment($order) {
-  if(empty($order->payment_method)) {
+  if (empty($order->payment_method)) {
     return 0;
   }
 
-  // In case the variable is set to '', check if $adjustment is empty and substitute 0.
+  // In case the variable is set to '', check if $adjustment is empty and
+  // substitute 0.
   $pm_adjustment = config_get('uc_pma.settings', 'uc_payment_method_'. $order->payment_method .'_adjustment', '0');
   $adjustment_data = array(
     'name' => _uc_payment_method_data($order->payment_method, 'name'),

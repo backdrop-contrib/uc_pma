@@ -4,7 +4,11 @@
  * Theme functions for the Ubercart Payment Adjustments module.
  */
 
-// Retheme the payment method settings table to include the adjustment field.
+/**
+ * Theme function for the payment method settings table.
+ *
+ *  Retheme the payment method settings table to include the adjustment field.
+ */
 function theme_uc_pma_payment_method_table($variables) {
   $form = $variables['form'];
 
